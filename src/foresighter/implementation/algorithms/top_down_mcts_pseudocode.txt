@@ -1,0 +1,406 @@
+class MCTS {
+public:
+    // This method performs MCTS selection, expansion, and simulation using BFS; the queue is initially populated with all of the abstract nodes
+    // whose concrete output values include the IO example's output and is continually popped while the abstract tails of the most promising
+    // incoming abstract transtition according to UCT are pushed, until the first unexpanded node is reached at which point one of its unvisited
+    // abstract transitions is randomly expanded and a playout occurs at every unexpanded node on the boundary
+
+    // Two vectors are built: path only contains selected and expanded abstract transitions while backtrackPath contains everything in path plus all abstract transitions randomly chosen by the playout down to the leaf abstract nodes; the simulation reward equals the max (executionTime_original / executionTime_candidate - 1) value among all the candidate queries enumerated by the backtracking extraction process, which uses backtrackPath, and the simulation reward is backpropagated along path
+
+    select(tempTransition, path, unvisitedBorder, notFullyExpandedNodes, seenNodeSet) {
+        tailQueue = []
+        path.push_back(tempTransition)
+
+        for (abstrTail in tempTransition.tails) {
+            tailQueue.push_back({abstrTail, tempTransition})
+            seenNodeSet.insert(abstrTail)
+        }
+
+        while (tailQueue is not empty) {
+            if (checkIfFullyExpanded(tailQueue.front().first, unvisitedBorder)) {
+                selectedAbstrTransition = bestUCT(tailQueue.front().second, tailQueue.front().first)
+
+                for (abstrTail in selectedAbstrTransition.tails) {
+                    if (abstrTail not in seenNodeSet) {
+                        tailQueue.push_back({abstrTail, selectedAbstrTransition})
+                        seenNodeSet.insert(abstrTail)
+                    }
+                }
+
+                path.push_back(selectedAbstrTransition)
+            }
+            else {
+                notFullyExpandedNodes.push_back(tailQueue.front().first)
+            }
+
+            tailQueue.pop_front()
+        }
+    }       
+
+    expandAndSimulate(path, backtrackPath, abstrTransitionToExpand, abstrNodeToExpand, notFullyExpandedNodes, seenNodeSet) {
+        for (notFullyExpandedNode in notFullyExpandedNodes) {
+            if (notFullyExpandedNode == abstrNodeToExpand) {
+                path.push_back(abstrTransitionToExpand)
+                backtrackPath.push_back(abstrTransitionToExpand)
+
+                for (abstrTail in abstrTransitionToExpand.tails) {
+                    seenNodeSet.insert(abstrTail)
+                }
+
+                playout(backtrackPath, abstrTransitionToExpand.tails, seenNodeSet)
+            }
+            else {
+                playout(backtrackPath, [notFullyExpandedNode], seenNodeSet)
+            }
+        }
+
+        concretize(backtrackPath)
+        
+        return extract(backtrackPath)
+    }
+
+
+    // A playout is represented by multiple calls to this method; it takes in the backtrackPath as a reference and appends randomly chosen abstract transitions down to leaf abstract nodes
+
+    playout(backtrackPath, tails, seenNodeSet) {
+        tailQueue = [tails]
+        
+        while (tailQueue is not empty) {
+            numAbstrTransitions = tailQueue.front().transitions.size()
+
+            if (numAbstrTransitions > 0) {
+                randomAbstrTransition = tailQueue.front().transitions[rand() % numAbstrTransitions]
+
+                for (abstrTail in randomAbstrTransition.tails) {
+                    if (abstrTail not in seenNodeSet) {
+                        tailQueue.push_back(abstrTail)
+                        seenNodeSet.insert(abstrTail)
+                    }
+                }
+
+                backtrackPath.push_back(randomAbstrTransition)
+            }
+
+            tailQueue.pop_front()
+        }
+    }
+
+    //there are three cases:
+    //1. curState is a constant leaf node
+    //2. curState is a variable leaf node
+    //3. curState is a non-leaf node
+    //for case 1, we can directly concretize it by adding a unabstracted state to the CFTA
+    //for case 2, we need to concretize it by adding the concretized table corresponding to the variable to the CFTA
+    //for case 3, we need to
+    //  (1) get cartesian product of concrete states mapped to each abstract state
+    //  (2) get the return state from the concrete transformer
+    //  (3) add the return state to the CFTA if it is not already in the CFTA
+
+    // This method concretizes the region of the slice represented by the list of abstract transitions backtrackPath by iterating backtrcakPath in reverse, concretizing the abstract leaf nodes first and building up; the reverse order of backtrackPath represents a valid topological sort so for each next abstract transition, its tails should already have been concretized
+
+    concretize(backtrackPath) {
+        abstrTailToHash.clear()
+
+        for (i = backtrackPath.size() - 1 to i = 0) {
+            concreteStatesForTails = []
+            hashValue = 0
+            
+            for (abstrTail in backtrackPath[i].tails) {
+                if (abstrTailToHash[abstrTail] does not exist) {
+                    auto& stateEntity = aftaStateManager.read(curState);
+
+                    //for case 1, we can directly concretize it by adding an unabstracted state to the CFTA
+                    if (stateEntity.getSymbol().isConstant()) {
+                        //add a new const state in cfta.
+                        sql::semantics::values::ConcreteValue::VariantType value =
+                            sql::UnAbstractedTerm((sql::Term)(stateEntity.getSymbol()));
+                        auto newlyBuiltConcreteStateID = cftaStateManager.create(
+                            stateEntity.getSymbol(),
+                            sql::semantics::abstractors::ConcreteValue(value),
+                            stateEntity.getCost());
+                        cftaForSlicing.addState(newlyBuiltConcreteStateID);
+                        mappingAbstractStateToConcreteStates[slice.getGlobalState(curState)]
+                            .insert(newlyBuiltConcreteStateID);
+                    } else if (stateEntity.getSymbol().isVariable()) {
+                        //if it's varTable
+                        if (std::holds_alternative<sql::VarTable>(
+                                stateEntity.getSymbol().getSymbol())) {
+                        //add a new variable state in cfta. we need to bind the concrete table in I/O pair to the variable
+                        //this means that the state should be (varSymbol, concreteTable)
+                        auto varSymbolIdx =
+                            std::get<sql::VarTable>(stateEntity.getSymbol().getSymbol())
+                                .getIndex();
+                        auto newlyBuiltConcreteStateID = cftaStateManager.create(
+                            stateEntity.getSymbol(),
+                            sql::semantics::values::ConcreteValue(
+                                benchmark.getIOPairs()[0].getInput()[varSymbolIdx]),
+                            stateEntity.getCost());
+                        cftaForSlicing.addState(newlyBuiltConcreteStateID);
+                        mappingAbstractStateToConcreteStates[slice.getGlobalState(curState)]
+                            .insert(newlyBuiltConcreteStateID);
+                        }
+                        //if it's filter constant
+                        else if (std::holds_alternative<sql::VarFilterConst>(
+                                    stateEntity.getSymbol().getSymbol())) {
+                        auto filterConstIdx = std::get<sql::VarFilterConst>(
+                                                    stateEntity.getSymbol().getSymbol())
+                                                    .getIndex();
+                        auto term =
+                            sql::Term((sql::Symbol)sql::VarFilterConst(filterConstIdx));
+                        auto newlyBuiltConcreteStateID = cftaStateManager.create(
+                            stateEntity.getSymbol(),
+                            (sql::semantics::values::ConcreteValue)sql::UnAbstractedTerm(
+                                term),
+                            stateEntity.getCost());
+                        cftaForSlicing.addState(newlyBuiltConcreteStateID);
+                        mappingAbstractStateToConcreteStates[slice.getGlobalState(curState)]
+                            .insert(newlyBuiltConcreteStateID);
+                        }
+                    }
+                    
+                    childHash = 0
+                    
+                    hashCombine(childHash, newlyBuiltConcreteStateID.symbol)
+                    hashCombine(childHash, newlyBuiltConcreteStateID.order)
+
+                    abstrTailToHash[abstrTail] = childHash
+                    hashToConcrNodes[childHash].insert(newlyBuiltConcreteStateID)
+                }
+
+                hashCombine(hashValue, abstrTailToHash[abstrTail])
+
+                concreteStatesForTail = []
+
+                //for each transition, find the concrete states that are mapped to the abstract states in tails. Do the cartesian product of these concrete states
+                for (concreteState in hashToConcrNodes[abstrTailToHash[abstrTail]]) {
+                    concreteStatesForTail.push_back(concreteState)
+                }
+
+                concreteStatesForTails.push_back(concreteStatesForTail)
+            }
+
+            if (hashToConcrNodes[hashValue] is empty) {
+                //get the cartesian product of the concrete states
+                std::vector<std::vector<IDType>> argCartesianProduct =
+                    foresighter::common::cartesianProduct(concreteStatesForTails);
+                //for each cartesian product, get the return state from the concrete transformer and add it to the CFTA
+                for (auto& arg : argCartesianProduct) {
+                    std::vector<sql::semantics::values::ConcreteValue>
+                        argConcreteValues;
+                    for (auto& argState : arg) {
+                    argConcreteValues.push_back(
+                        cftaStateManager.read(argState).getValue());
+                    }
+                    auto returnValueAfterTransform = interpreter.transform(
+                        transitionEntity.getSymbol(), argConcreteValues,
+                        transitionEntity.getOrder());
+                    //if error or bottom, then skip
+                    if (std::holds_alternative<sql::Error>(
+                            returnValueAfterTransform.getValue()) ||
+                        std::holds_alternative<sql::Bottom>(
+                            returnValueAfterTransform.getValue())) {
+                    continue;
+                    }
+                    auto newlyBuiltConcreteStateID = cftaStateManager.create(
+                        stateEntity.getSymbol(), returnValueAfterTransform,
+                        stateEntity.getCost());
+                    cftaForSlicing.addState(newlyBuiltConcreteStateID);
+                    auto newTransitionID = cftaTransitionManager.create(
+                        newlyBuiltConcreteStateID, transitionEntity.getSymbol(), arg,
+                        transitionEntity.getCost(), transitionEntity.getOrder());
+                    cftaForSlicing.addTransition(newTransitionID);
+
+                    if (std::holds_alternative<sql::ConcreteTable>(
+                            returnValueAfterTransform.getValue())) {
+                    auto startRemapping = std::chrono::high_resolution_clock::now();
+                    auto mappedAFTAState =
+                        mapConcreteStateToAFTAState<RefinedLattice>(
+                            newlyBuiltConcreteStateID, stateEntity.getSymbol(),
+                            returnValueAfterTransform, topoSortedStatesPerSymbol,
+                            aftaStateManager, abstractor, inputRowNums,
+                            previouslyMappedCFTAState, curState);
+                    gTotalMappingChecked++;
+                    if (mappedAFTAState != curState) {
+                        gTotalMappingJumpped++;
+                    }
+                    mappingAbstractStateToConcreteStates[slice.getGlobalState(
+                                                                mappedAFTAState)]
+                        .insert(newlyBuiltConcreteStateID);
+                    auto endRemapping = std::chrono::high_resolution_clock::now();
+                    gCurSketchRemappingTime +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            endRemapping - startRemapping)
+                            .count();
+                    } else {
+                    mappingAbstractStateToConcreteStates[slice.getGlobalState(
+                                                                curState)]
+                        .insert(newlyBuiltConcreteStateID);
+                    }
+
+                    hashToConcrNodes[hashValue].insert(newlyBuiltConcreteStateID)
+                }
+            }
+
+            abstrTailToHash[backtrackPath[i].head] = hashValue
+        }
+    }
+
+    //check if the return value is consistent with the output
+    //if cur state is in the target states, and if the return value is consistent with the output, then we have found a program
+    //if the return value is consistent with the concrete output value, then we can extract the program from the CFTA.
+    //this extraction has to be guided using AFTA, because since we are merging concrete same states during the construction
+    //of CFTA, there might be surious states in the CFTA that are not in the AFTA.
+
+    // This method borrows code from the original synthesize_with_slicing.hpp with not much modification currently; the
+    // extractAcceptedTermsFromStateWithFirstTransitionEnforced() method will be modified to choose abstract transitions only according to
+    // backtrackPath
+
+    extract(backtrackPath) {
+        //now it has consistent mappings - for each mapping, we can get one program (wrap projection outside of the inner extracted programs)
+        //do a top-down backtracking to get the program
+
+        rewardSum = 0
+        numTerms = 0;
+
+        auto extractedTerms =
+            termExtractor
+                .extractAcceptedTermsFromStateWithFirstTransitionEnforced(
+                    newlyBuiltConcreteStateID, newTransitionID, backtrackPath, hashToConcrNodes, abstrTailToHash);
+        
+        for (auto& term : extractedTerms) {
+            numberOfProgramsEnumerated++;
+            auto sql = interpreter.getSQLFromTerm(term);
+            for (auto& mapping : consistentMappings) {
+            auto sqlWrapped = wrapSQLWithFinalProjection(sql, mapping);
+
+            // ! START OF VERIFYING THE CURRENT CANDIDATE QUERY SATISFIES ALL EXAMPLES VIA CEGIS
+            auto cegisVerifStartTime = std::chrono::high_resolution_clock::now();
+
+            //go to cegis runner
+            auto cegisRunnerResult = cegisRunner.run(sqlWrapped);
+            if (cegisRunnerResult.status != -1) {
+                if (cegisRunnerResult.status >= 0) {
+
+                if (cegisRunnerResult.status > soFarMostIndexReached) {
+                    soFarMostIndexReached = cegisRunnerResult.status;
+                }
+                } else {
+                }
+                continue;
+            }
+
+            // ! END: CURRENT CANDIDATE QUERY HAS BEEN VERIFIED TO SATISFY ALL EXAMPLES VIA CEGIS
+            auto cegisVerifEndTime = std::chrono::high_resolution_clock::now();
+            auto cegisVerifDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(cegisVerifEndTime - cegisVerifStartTime).count();
+
+            if (fastestRewriteIdx == -1 || cegisVerifDuration < fastestRewriteExecTime) {
+                fastestRewriteIdx = returnPrograms.size();
+                fastestRewriteExecTime = cegisVerifDuration;
+            }
+
+            reward = calcReward(sqlWrapped)
+            rewardSum += reward
+
+            if (reward > bestReward) {
+                bestRewrite = sqlWrapped
+                bestReward = reward
+            }
+
+            numTerms++
+        }
+
+        return rewardSum / numTerms
+    }
+
+    // This method backpropagates the simulation reward across all abstract transitions in path
+
+    backpropagate(path, reward) {
+        pathHash = hash(path)
+
+        for (int i = path.size() - 1; i >= 0; i--) {
+            pathHash.pop_back();
+
+            path[i].pathHashToStats[pathHash].total_reward += reward
+            path[i].pathHashToStats[pathHash].numVisits++
+        }
+    }
+
+    // This method runs MCTS
+
+    runMCTS() {
+        auto slice = slicingServer.loadSlicing(benchmark.getName(), h, logger);
+        
+        outputConsistentAbstrRoots = []
+
+        for (root in slice.roots) {
+            if (isOutputConsistent(root)) {
+                outputConsistentAbstrRoots.push_back(root)
+            }
+        }
+        
+        tempNode = slice.createState()
+        dummyNode = slice.createState()
+
+        tempTransition = slice.createTransition(from tempNode to dummyNode)
+        
+        for (outputConsistentAbstrRoot in outputConsistentAbstrRoots) {
+            dummyTransition = slice.createTransition(from dummyNode to outputConsistentAbstrRoot)
+        }
+
+        while (resourcesRemaining()) {
+            path = []
+            unvisitedBorder = []
+            notFullyExpandedNodes = []
+            seenNodeSet = []
+
+            select(tempTransition, path, unvisitedBorder, notFullyExpandedNodes, seenNodeSet)
+
+            backtrackPath = path
+            toExpand = unvisitedBorder[rand() % unvisitedBorder.size()];
+
+            reward = expandAndSimulate(path, backtrackPath, toExpand.first, toExpand.second, notFullyExpandedNodes, seenNodeSet)
+
+            backpropagate(path, reward)
+        }
+
+        return bestRewrite
+    }
+
+    bestUCT(parentAbstrTransition, abstrTail) {
+        maxUCT = -1;
+        selectedAbstrTransition = None
+        
+        for (abstrTransition in abstrTail.abstrTransitions) {
+            uct = calcUCT(parentAbstrTransition, abstrTransition);
+            if (uct > maxUCT) {
+                maxUCT = uct;
+                selectedAbstrTransition = abstrTransition
+            }
+        }
+
+        return selectedAbstrTransition
+    }
+
+
+    checkIfFullyExpanded(abstrTail, unvisitedBorder) {
+        if (abstrTail.transitions is empty) {
+            return false
+        }
+
+        isFullyExpanded = true;
+
+        for (abstrTransition in abstrTail.transitions) {
+            if (abstrTransition.numVisits == 0) {
+                isFullyExpanded = false;
+                unvisitedBorder.push_back({abstrTransition, abstrTail})
+            }
+        }
+
+        return isFullyExpanded
+    }
+private:
+    bestReward = -1
+    bestRewrite = ""
+    emhash8hashmap::HashMap<size_t, unordered_set<IDType>> hashToConcrNodes
+    emhash8hashmap::HashMap<IDType, size_t> abstrTailToHash
+}
