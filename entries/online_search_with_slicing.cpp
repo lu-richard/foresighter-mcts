@@ -7,7 +7,7 @@
 // --log_output_folder <path to log output folder>
 // --cegis_fuzz_dir <path to cegis fuzz directory>
 // --use_mcts (optional flag, default off) -- use the top-down MCTS search
-//     (top_down_mcts_final_fixedroot.hpp) instead of the default exhaustive
+//     (top_down_mcts.hpp) instead of the default exhaustive
 //     bottom-up search (synthesize_with_slicing.hpp) for every benchmark in
 //     this run.
 
@@ -17,7 +17,7 @@
 #include <filesystem>
 #include <foresighter/common/logger.hpp>
 #include <foresighter/implementation/algorithms/synthesize_with_slicing.hpp>
-#include <foresighter/implementation/algorithms/top_down_mcts_final_fixedroot.hpp>
+#include <foresighter/implementation/algorithms/top_down_mcts.hpp>
 #include <foresighter/implementation/basics/entity_manager.hpp>
 #include <foresighter/implementation/basics/grammar.hpp>
 #include <foresighter/implementation/sql/benchmark_reader.hpp>

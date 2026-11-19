@@ -1,6 +1,6 @@
 #pragma once
 /**
- * @file top_down_mcts_final.hpp
+ * @file top_down_mcts.hpp
  * @brief Online synthesis: top-down Monte-Carlo Tree Search alternative to
  * synthesize_with_slicing.hpp.
  *

@@ -2,7 +2,7 @@
 /**
  * @file sql_rewrite_utils.hpp
  * @brief Small SQL-string helpers shared by every online search strategy
- * (synthesize_with_slicing.hpp, top_down_mcts_final.hpp, ...) so a candidate
+ * (synthesize_with_slicing.hpp, top_down_mcts.hpp, ...) so a candidate
  * rewrite's columns can be permuted to match the benchmark's expected output
  * order.
  */
