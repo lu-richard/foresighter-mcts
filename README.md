@@ -33,7 +33,7 @@ Synthesis-based SQL query optimization provides many advantages over rule-based 
 
 ## Problem
 
-Finding the fastest query within an AFTA slice is hard. When basing the search on a direct performance metric such as execution time, every edge weight becomes dependent on the running path of edges taken. This immediately rejects any application of shortest-path algorithms such as Dijkstra's algorithm or A*, which either require the globally optimal solution to be built from locally optimal solutions or an admissible heuristic. The fastest complete rewrite will not necessarily extend from the fastest subprograms, nor does there exist any known admissible heuristic for execution time.
+Finding the fastest rewrite within a slice cannot be treated as a standard shortest-path problem. When basing the search on a direct performance metric such as execution time, the cost of each transition becomes dependent on the running path of edges taken. This immediately rejects any application of shortest-path algorithms such as Dijkstra's algorithm or A*, which either require the globally optimal solution to be built from locally optimal solutions or an admissible heuristic. The fastest complete rewrite will not necessarily extend from the fastest subprograms, nor does there exist any known admissible heuristic for execution time.
 
 The previous algorithm meant to search the slice concretized the slice bottom-up, continuously updating a running fastest rewrite that was returned at the end. Whenever a final concrete state was produced, the concretization process paused and all accepting runs or queries were immediately enumerated to gauge both correctness and execution speed as compared to that of the baseline query.
 
