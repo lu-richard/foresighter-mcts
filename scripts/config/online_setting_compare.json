@@ -1,0 +1,6 @@
+{
+    "timeoutInMs": 60000,
+    "numThreads": 1,
+    "numCEGISExamples": 16,
+    "topDownSketchMaxDepth": 0
+}

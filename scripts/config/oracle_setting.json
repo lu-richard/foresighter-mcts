@@ -1,0 +1,5 @@
+{
+    "MaxTableIdx": 3,
+    "MaxExactDistance": 30,
+    "MaxSymbolicConstantNum": 2
+}
