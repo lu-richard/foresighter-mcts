@@ -59,6 +59,7 @@ Breaking down each phase:
 3. Simulation: During a playout, transitions from the previous abstract tails are repeatedly added to the head-to-transition hashmap down to leaf abstract states. Once all playouts finish, the algorithm uses top-down dynamic programming to collect all the root abstract state’s concrete states and terms by using the head-to-transition hashmap, a memo that keys Merkle hash on abstract state ID, and a global hashmap that keys concrete states and their terms on Merkle hash.
 
 Base case: Memoize the leaf abstract state’s ID and Merkle hash (symbol + order) and return the hash.
+
 Inductive step:
 If this abstract state’s ID already exists in the memo, return its Merkle hash.
 Recursively call on the tails of this state's assigned transition and form the Merkle hash for this state by combining its symbol and order with the Merkle hashes they return. Collect all the tails' concrete states and terms.
