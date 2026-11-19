@@ -23,7 +23,7 @@
 
 I designed and implemented an MCTS-based search over Foresighter's AFTA slices:
 - `algorithms/top_down_mcts.hpp`: the MCTS search
-- `algorithms/top_down_mcts_pseudocode.hpp`: pseudocode for the MCTS search
+- `algorithms/top_down_mcts_pseudocode.txt`: pseudocode for the MCTS search
 - path-context (`pathHash`) statistics, Merkle-hashed concrete candidate pooling,
   and the benchmark comparison against the original search
 
