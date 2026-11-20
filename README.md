@@ -55,6 +55,8 @@ When I began devising a way to adapt MCTS, I had to first decide whether to sear
 
 ![One MCTS iteration over an AFTA slice: selection, expansion, simulation, and backpropagation](docs/mcts.svg)
 
+<br>
+
 Breaking down each phase:
 1. Selection: The algorithm uses UCT to enqueue one root abstract state and then repeatedly enqueues the tail states of the UCT-maximizing abstract transition of the next-in-line state, down to states with at least one unvisited transition. Chosen transitions are added to the backpropagation path and a hashmap keying chosen outgoing transition on state.
 
