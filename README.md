@@ -29,7 +29,7 @@ I designed and implemented an MCTS-based search over Foresighter's AFTA slices:
 
 ## Background
 
-Synthesis-based SQL query optimization provides many advantages over rule-based optimization. Unlike rule-based optimizers such as Apache Calcite's HepPlanner, which rely on a set of human-written or automatically discovered rewrite rules to replace components of a query with counterparts that lead to a semantically equivalent query likely to run faster, synthesis-based optimization approaches search for the fastest rewrite within a space representing all queries that are consistent with the given query on all test inputs, bounded by depth and cost limits. Not only do these approaches not depend on direct human expertise to be effective, but they are also able to identify new query patterns that are not encompassed by rules. To search this space within a feasible amount of time, synthesizers leverage abstract semantics to prune groups of programs whose behavior is fundamentally inconsistent with that of a given query, with finer abstraction granularity leading to greater pruning potential. However, as abstract semantics become finer-grained, the cost of pruning generally rises drastically, as the state space can easily explode in size. To combat this "FTA-bloat" phenomenon, which can significantly hinder on-demand rewrite synthesis, the presynthesis-based synthesis framework Foresighter introduces an offline presynthesis phase which computes and stores on disk an abstract finite tree automaton (AFTA) representing any query on any input in a considered space and a reachability oracle which allows said AFTA to be quickly pruned during synthesis. In this AFTA, states represent abstract values (e.g., constraints on a table's row count, column count or column types), transitions apply SQL operators under abstract semantics, and each query corresponds to a tree of transitions, or run. When online, Foresighter uses its oracle to extract a sub-FTA, or slice, containing every candidate rewrite whose abstract behavior is consistent with the given query. This slice can then be searched over to find the fastest rewrite under concrete semantics.
+Synthesis-based SQL query optimization provides many advantages over rule-based optimization. Unlike rule-based optimizers such as Apache Calcite's HepPlanner, which rely on a set of human-written or automatically discovered rewrite rules to replace components of a query with counterparts that lead to a semantically equivalent query likely to run faster, synthesis-based optimization approaches search for the fastest rewrite within a space representing all queries that are consistent with the given query on all test inputs, bounded by depth and cost limits. Not only do these approaches not depend on direct human expertise to be effective, but they are also able to identify new query patterns that are not encompassed by rules. To search this space within a feasible amount of time, synthesizers leverage abstract semantics to prune groups of programs whose behavior is fundamentally inconsistent with that of a given query, with finer abstraction granularity leading to greater pruning potential. However, as abstract semantics become finer-grained, the cost of pruning generally rises drastically, as the state space can easily explode in size. To combat this "FTA-bloat" phenomenon, which can significantly hinder on-demand rewrite synthesis, the presynthesis-based synthesis framework Foresighter introduces an offline presynthesis phase which computes and stores on disk an abstract finite tree automaton (AFTA) representing any query on any input in a considered space and a reachability oracle which allows said AFTA to be quickly pruned during synthesis (Dong et al., 2026). In this AFTA, states represent abstract values (e.g., constraints on a table's row count, column count or column types), transitions apply SQL operators under abstract semantics, and each query corresponds to a tree of transitions, or run. When online, Foresighter uses its oracle to extract a sub-FTA, or slice, containing every candidate rewrite whose abstract behavior is consistent with the given query. This slice can then be searched over to find the fastest rewrite under concrete semantics.
 
 ## Problem
 
@@ -43,13 +43,15 @@ Hence, I sought to develop an algorithm that could find rewrites within a slice 
 
 ## Approach
 
-In my early efforts adapting classic shortest-path algorithms and the search space itself, I inevitably ran into roadblocks concerning time and space complexity. This led me to understand the problem as I do today, and begin digging in a new direction. I was particularly interested in framing the problem as a multi-armed bandit problem. The more I researched the multi-armed bandit problem, the more I came to see its relevance to program synthesis. I was especially intrigued by how Monte Carlo tree search (MCTS) could balance exploiting empirically promising moves with exploring relatively unknown moves.
+In my early efforts adapting classic shortest-path algorithms and the search space itself, I inevitably ran into roadblocks concerning time and space complexity. This led me to understand the problem as I do today, and begin digging in a new direction. I was particularly interested in framing the problem as a multi-armed bandit problem. The more I researched the multi-armed bandit problem, the more I came to see its relevance to program synthesis. I was especially intrigued by how Monte Carlo tree search (MCTS) could balance exploiting empirically promising moves with exploring relatively unknown moves (Coulom, 2006).
 
 MCTS is typically applied to board games such as Go, chess and others whose mid-match states can be represented by game trees with massive branching factors, but I reasoned it could be adapted to search over a slice since AFTAs are directed acyclic hypergraphs, meaning states only transition in one direction and often have many children; the algorithm needs no heuristic and is asymmetric and stoppable anytime, which suits it for searching over a black box space focused on query performance; and patterns of arranging SQL correlate with query speed, as evidenced by the effectiveness of optimizers like Apache Calcite's HepPlanner that rewrite relational algebra trees deterministically using rules.
 
 ## Algorithm
 
-When I began devising a way to adapt MCTS, I had to first decide whether to search over a complete concrete finite tree automaton (CFTA) generated from the slice or to search over the slice, concretizing the portions needed to evaluate each playout's results. I determined that searching over the slice would yield faster rewrites in less time since associating abstract semantics, instead of concrete semantics which far outnumber them, with performance-based statistics would be more conducive to statistical convergence as the algorithm runs. In other words, by shrinking the algorithm's moveset using abstract semantics, which condense groups of programs based on shared behavior, I would make it more likely that selected moves would sooner point to their true expected values, allowing the algorithm to more quickly establish patterns of exploitation that lead to the fastest rewrite. By only concretizing the regions of the CFTA that were relevant, which could also be reused across iterations, I would also save significant time and space. I decided to set my reward equal to the median execution time of the baseline query divided by the median execution time of a candidate query (both determined using the same database) minus by 1, and the exploration constant of my Upper Confidence Bounds applied to Trees (UCT) formula equal to c = √2. Since my reward function was unbounded, I was concerned over whether a constant would make exploration obsolete in the case that certain transitions had extremely large exploitation factors, but in separate tests normalizing reward and scaling the exploration constant based on standard deviation of rewards, I did not find any meaningful improvements over c = √2. Ultimately, I came out with a finished algorithm that would navigate the slice to collect a skeleton of abstract transitions that would be concretized to generate multiple corresponding queries, whose average reward would be backpropagated.
+When I began devising a way to adapt MCTS, I had to first decide whether to search over a complete concrete finite tree automaton (CFTA) generated from the slice or to search over the slice, concretizing the portions needed to evaluate each playout's results. I determined that searching over the slice would yield faster rewrites in less time since associating abstract semantics, instead of concrete semantics which far outnumber them, with performance-based statistics would be more conducive to statistical convergence as the algorithm runs. In other words, by shrinking the algorithm's moveset using abstract semantics, which condense groups of programs based on shared behavior, I would make it more likely that selected moves would sooner point to their true expected values, allowing the algorithm to more quickly establish patterns of exploitation that lead to the fastest rewrite. By only concretizing the regions of the CFTA that were relevant, which could also be reused across iterations, I would also save significant time and space. I decided to set my reward equal to the median execution time of the baseline query divided by the median execution time of a candidate query (both determined using the same database) minus 1, and the exploration constant of my Upper Confidence Bounds applied to Trees (UCT) formula (Kocsis & Szepesvári, 2006) equal to c = √2 (Auer et al., 2002). Since my reward function was unbounded, I was concerned over whether a constant would make exploration obsolete in the case that certain transitions had extremely large exploitation factors, but in separate tests normalizing reward and scaling the exploration constant based on standard deviation of rewards, I did not find any meaningful improvements over c = √2. Ultimately, I came out with a finished algorithm that would navigate the slice to collect a skeleton of abstract transitions that would be concretized to generate multiple corresponding queries, whose average reward would be backpropagated.
+
+![One MCTS iteration over an AFTA slice: selection, expansion, simulation, and backpropagation](docs/mcts.svg)
 
 Breaking down each phase:
 1. Selection: The algorithm uses UCT to enqueue one root abstract state and then repeatedly enqueues the tail states of the UCT-maximizing abstract transition of the next-in-line state, down to states with at least one unvisited transition. Chosen transitions are added to the backpropagation path and a hashmap keying chosen outgoing transition on state.
@@ -59,6 +61,7 @@ Breaking down each phase:
 3. Simulation: During a playout, transitions from the previous abstract tails are repeatedly added to the head-to-transition hashmap down to leaf abstract states. Once all playouts finish, the algorithm uses top-down dynamic programming to collect all the root abstract state’s concrete states and terms by using the head-to-transition hashmap, a memo that keys Merkle hash on abstract state ID, and a global hashmap that keys concrete states and their terms on Merkle hash.
 
 Base case: Memoize the leaf abstract state’s ID and Merkle hash (symbol + order) and return the hash.
+
 Inductive step:
 If this abstract state’s ID already exists in the memo, return its Merkle hash.
 Recursively call on the tails of this state's assigned transition and form the Merkle hash for this state by combining its symbol and order with the Merkle hashes they return. Collect all the tails' concrete states and terms.
@@ -80,3 +83,39 @@ Moving forward, I believe that making playouts more realistic by guiding them wi
 ## Acknowledgments
 
 Parts of this work were assisted by Claude (Anthropic) via Claude Code. It was used for code review and debugging (including finding and fixing a UCT visit-count bug), adapting my implementation to the existing Foresighter codebase, preparing this trimmed repository, and feedback on this write-up. The algorithm's design is my own. I reviewed all AI-generated changes.
+
+## References
+
+```bibtex
+@inproceedings{coulom2006mcts,
+  author    = {Coulom, R{\'e}mi},
+  title     = {Efficient Selectivity and Backup Operators in {Monte-Carlo} Tree Search},
+  booktitle = {Computers and Games (CG 2006)},
+  series    = {LNCS}, volume = {4630}, pages = {72--83},
+  publisher = {Springer}, year = {2007}
+}
+
+@inproceedings{kocsis2006uct,
+  author    = {Kocsis, Levente and Szepesv{\'a}ri, Csaba},
+  title     = {Bandit Based {Monte-Carlo} Planning},
+  booktitle = {Machine Learning: ECML 2006},
+  series    = {LNCS}, volume = {4212}, pages = {282--293},
+  publisher = {Springer}, year = {2006}
+}
+
+@article{auer2002ucb,
+  author  = {Auer, Peter and Cesa-Bianchi, Nicol{\`o} and Fischer, Paul},
+  title   = {Finite-time Analysis of the Multiarmed Bandit Problem},
+  journal = {Machine Learning}, volume = {47}, number = {2--3},
+  pages   = {235--256}, year = {2002}
+}
+
+@article{browne2012survey,
+  author  = {Browne, Cameron and Powley, Edward and Whitehouse, Daniel and Lucas, Simon and
+             Cowling, Peter I. and Rohlfshagen, Philipp and Tavener, Stephen and
+             Perez, Diego and Samothrakis, Spyridon and Colton, Simon},
+  title   = {A Survey of {Monte Carlo} Tree Search Methods},
+  journal = {IEEE Transactions on Computational Intelligence and AI in Games},
+  volume  = {4}, number = {1}, pages = {1--43}, year = {2012}
+}
+```
