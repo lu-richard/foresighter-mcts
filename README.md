@@ -43,7 +43,7 @@ Hence, I sought to develop an algorithm that could find rewrites within a slice 
 
 ## Approach
 
-In my early efforts adapting classic shortest-path algorithms and the search space itself, I inevitably ran into roadblocks concerning time and space complexity. This led me to understand the problem as I do today, and begin digging in a new direction. I was particularly interested in framing the problem as a multi-armed bandit problem. The more I researched the multi-armed bandit problem, the more I came to see its relevance to program synthesis. I was especially intrigued by how Monte Carlo tree search (MCTS) could balance exploiting empirically promising moves with exploring relatively unknown moves (Coulom, 2006).
+In my early efforts adapting classic shortest-path algorithms and the search space itself, I inevitably ran into roadblocks concerning time and space complexity. This led me to understand the problem as I do today, and begin digging in a new direction. I was particularly interested in framing the problem as a multi-armed bandit problem. The more I researched the multi-armed bandit problem, the more I came to see its relevance to program synthesis. I was especially intrigued by how Monte Carlo tree search (MCTS) could balance exploiting empirically promising moves with exploring relatively unknown moves (Coulom, 2007).
 
 MCTS is typically applied to board games such as Go, chess and others whose mid-match states can be represented by game trees with massive branching factors, but I reasoned it could be adapted to search over a slice since AFTAs are directed acyclic hypergraphs, meaning states only transition in one direction and often have many children; the algorithm needs no heuristic and is asymmetric and stoppable anytime, which suits it for searching over a black box space focused on query performance; and patterns of arranging SQL correlate with query speed, as evidenced by the effectiveness of optimizers like Apache Calcite's HepPlanner that rewrite relational algebra trees deterministically using rules.
 
@@ -86,6 +86,16 @@ Parts of this work were assisted by Claude (Anthropic) via Claude Code. It was u
 
 ## References
 
+- Auer, P., Cesa-Bianchi, N., & Fischer, P. (2002). *Finite-time Analysis of the Multiarmed Bandit Problem.*\
+  Machine Learning, 47(2–3), 235–256.
+- Coulom, R. (2007). *Efficient Selectivity and Backup Operators in Monte-Carlo Tree Search.*\
+  Computers and Games (CG 2006), LNCS 4630, 72–83. Springer.
+- Kocsis, L., & Szepesvári, C. (2006). *Bandit Based Monte-Carlo Planning.*\
+  Machine Learning: ECML 2006, LNCS 4212, 282–293. Springer.
+
+<details>
+<summary>BibTeX</summary>
+
 ```bibtex
 @inproceedings{coulom2006mcts,
   author    = {Coulom, R{\'e}mi},
@@ -109,13 +119,6 @@ Parts of this work were assisted by Claude (Anthropic) via Claude Code. It was u
   journal = {Machine Learning}, volume = {47}, number = {2--3},
   pages   = {235--256}, year = {2002}
 }
-
-@article{browne2012survey,
-  author  = {Browne, Cameron and Powley, Edward and Whitehouse, Daniel and Lucas, Simon and
-             Cowling, Peter I. and Rohlfshagen, Philipp and Tavener, Stephen and
-             Perez, Diego and Samothrakis, Spyridon and Colton, Simon},
-  title   = {A Survey of {Monte Carlo} Tree Search Methods},
-  journal = {IEEE Transactions on Computational Intelligence and AI in Games},
-  volume  = {4}, number = {1}, pages = {1--43}, year = {2012}
-}
 ```
+
+</details>
